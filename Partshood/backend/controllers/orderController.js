@@ -22,21 +22,24 @@ const placeOrder = async (req, res) => {
         return res.status(404).json({ message: "Product not found" });
       }
 
-      if (product.stock < item.quantity) {
-        return res.status(400).json({
-          message: `Not enough stock for ${product.name}`
-        });
-      }
+      let isPreOrder = false;
 
-      product.stock -= item.quantity;
-      await product.save();
+      if (product.stock < item.quantity) {
+        // Pre-order flow (No stock deduction)
+        isPreOrder = true;
+      } else {
+        // Normal order
+        product.stock -= item.quantity;
+        await product.save();
+      }
 
       orderItems.push({
         product: product._id,
         name: product.name,
         price: product.price,
         quantity: item.quantity,
-        image: product.image
+        image: product.image,
+        isPreOrder
       });
 
       totalAmount += product.price * item.quantity;
@@ -45,16 +48,29 @@ const placeOrder = async (req, res) => {
     const order = await Order.create({
       user: req.user.id,
       items: orderItems,
-      shippingAddress,
+      shippingAddress: {
+        fullName: req.user.name || "Customer",
+        phone: "N/A",
+        address: typeof shippingAddress === 'string' ? shippingAddress : "N/A",
+        city: "N/A"
+      },
       paymentMethod: paymentMethod || "Cash on Delivery",
       totalAmount
     });
+
+    let paymentUrl = null;
+    if (paymentMethod === "eSewa") {
+      paymentUrl = `https://uat.esewa.com.np/epay/main?amt=${totalAmount}&pid=${order._id}&scd=EPAYTEST&su=http://localhost:5173/payment-success&fu=http://localhost:5173/payment-failed`;
+    } else if (paymentMethod === "Khalti") {
+      paymentUrl = `http://localhost:5173/khalti-pay/${order._id}`;
+    }
 
     cart.items = [];
     await cart.save();
 
     res.status(201).json({
       message: "Order placed successfully",
+      paymentUrl,
       order
     });
   } catch (error) {
@@ -68,6 +84,7 @@ const getMyOrders = async (req, res) => {
 
     res.status(200).json(orders);
   } catch (error) {
+    console.error("getMyOrders error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -102,6 +119,21 @@ const getAllOrders = async (req, res) => {
   }
 };
 
+const getSellerOrders = async (req, res) => {
+  try {
+    const products = await Product.find({ sellerId: req.user.id }).select("_id");
+    const productIds = products.map((p) => p._id);
+
+    const orders = await Order.find({ "items.product": { $in: productIds } })
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(orders);
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 const updateOrderStatus = async (req, res) => {
   try {
     const { orderStatus } = req.body;
@@ -110,6 +142,16 @@ const updateOrderStatus = async (req, res) => {
 
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Optional: check if seller owns an item in this order
+    if (req.user.role === "seller") {
+      const products = await Product.find({ sellerId: req.user.id }).select("_id");
+      const productIds = products.map((p) => p._id.toString());
+      const hasItem = order.items.some((item) => productIds.includes(item.product.toString()));
+      if (!hasItem) {
+        return res.status(403).json({ message: "Not authorized to update this order" });
+      }
     }
 
     order.orderStatus = orderStatus;
@@ -129,5 +171,6 @@ module.exports = {
   getMyOrders,
   getSingleOrder,
   getAllOrders,
+  getSellerOrders,
   updateOrderStatus
 };

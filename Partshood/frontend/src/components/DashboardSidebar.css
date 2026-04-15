@@ -1,0 +1,82 @@
+.dash-sidebar {
+  width: 260px;
+  min-height: 100vh;
+  background-color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px;
+  flex-shrink: 0;
+}
+
+.dash-sidebar-brand {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin-bottom: 40px;
+  color: #111827;
+}
+
+.dash-sidebar-menu, .dash-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dash-sidebar-menu li, .dash-sidebar-footer li {
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.dash-sidebar-menu li a, .dash-sidebar-footer li a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  color: #6b7280;
+  font-weight: 500;
+  font-size: 14px;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.dash-sidebar-menu li:hover a, .dash-sidebar-footer li:hover a {
+  background-color: #f9fafb;
+  color: #374151;
+}
+
+.dash-sidebar-menu li.active a {
+  background-color: #f3f4f6;
+  color: #111827;
+  font-weight: 600;
+}
+
+.dash-pro-card {
+  margin: auto 0 24px 0;
+  background: linear-gradient(145deg, #111827, #1f2937);
+  border-radius: 20px;
+  padding: 24px 20px;
+  color: white;
+}
+
+.dash-pro-card h4 {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.dash-pro-card p {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.dash-upgrade-btn {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.dash-upgrade-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
