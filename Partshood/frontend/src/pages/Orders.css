@@ -1,0 +1,113 @@
+.orders-page {
+  min-height: 100vh;
+  background: #f3f4f6;
+}
+
+.orders-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px;
+}
+
+.orders-header {
+  margin-bottom: 32px;
+}
+
+.orders-heading {
+  font-size: 28px;
+  font-weight: 800;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.orders-table-wrapper {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.orders-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.orders-table th {
+  text-align: left;
+  padding: 18px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  background: #f8fafc;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.orders-table td {
+  padding: 24px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.orders-table tr:last-child td {
+  border-bottom: none;
+}
+
+.order-id-cell {
+  font-weight: 600;
+  color: #111827;
+}
+
+.order-status-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.order-status-pill.delivered {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.order-status-pill.processing {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.order-status-pill.pending {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.order-status-pill.preorder {
+  background: #fefce8;
+  color: #ca8a04;
+}
+
+.view-order-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f4f6;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-order-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}

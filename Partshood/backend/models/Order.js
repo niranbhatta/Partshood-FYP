@@ -22,6 +22,10 @@ const orderItemSchema = new mongoose.Schema(
     image: {
       type: String,
       default: ""
+    },
+    isPreOrder: {
+      type: Boolean,
+      default: false
     }
   },
   { _id: false }
