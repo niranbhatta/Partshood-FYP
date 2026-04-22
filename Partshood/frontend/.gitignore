@@ -1,5 +1,16 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,18 +18,30 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local config
 *.local
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Dependencies
+**/node_modules/
+
+# Build / cache
+**/.vite/
+**/dist/
+**/dist-ssr/
+**/build/
+**/.cache/
+
+# Runtime / temp
+Partshood/tmp/
+Partshood.zip
+
+# Uploaded runtime images
+Partshood/backend/uploads/image-*
+
+# Keep upload directory if needed
+!Partshood/backend/uploads/.gitkeep
