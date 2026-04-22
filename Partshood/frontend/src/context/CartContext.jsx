@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
 
+// building a globally accessible state for the shopping cart
 const CartContext = createContext();
 
 export const useCart = () => useContext(CartContext);
@@ -9,12 +10,13 @@ export const useCart = () => useContext(CartContext);
 export const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(null);
   const [cartCount, setCartCount] = useState(0);
-  const { token, user } = useAuth();
+  const { token, user } = useAuth(); // grabbing the jwt token from our other context to prove who we are
 
+  // hits the backend to grab what's currently in their database cart
   const fetchCart = async () => {
     if (!token) {
       setCart(null);
-      setCartCount(0);
+      setCartCount(0); // clear it out if they log out
       return;
     }
     try {
@@ -23,6 +25,7 @@ export const CartProvider = ({ children }) => {
       });
       setCart(data);
       if (data && data.items) {
+        // summing up the quantities of everything in the cart so the little bubble on the navbar is accurate
         setCartCount(data.items.reduce((acc, item) => acc + item.quantity, 0));
       }
     } catch (error) {
@@ -30,19 +33,22 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  // re-fetch the cart whenever they log in or the token changes
   useEffect(() => {
     fetchCart();
   }, [token, user]);
 
+  // triggered when they click 'add to cart' on a product detail page
   const addToCart = async (productId, quantity = 1) => {
     if (!token) return { success: false, message: 'Please login first' };
     try {
       const { data } = await axios.post(
         'http://localhost:5000/api/cart',
         { productId, quantity },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } } // proving to the backend who is making the request
       );
       setCart(data.cart);
+      // updating the navbar bubble instantly
       if (data.cart && data.cart.items) {
         setCartCount(data.cart.items.reduce((acc, item) => acc + item.quantity, 0));
       }
@@ -53,6 +59,7 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  // triggered when they hit the plus/minus buttons on the cart page itself
   const updateQuantity = async (productId, quantity) => {
     if (!token) return;
     try {
@@ -70,6 +77,7 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  // hitting the trashcan icon on an item
   const removeFromCart = async (productId) => {
     if (!token) return;
     try {
@@ -86,6 +94,7 @@ export const CartProvider = ({ children }) => {
     }
   };
 
+  // instantly wiping the ui cart without hitting the db, mainly used right after a successful checkout
   const clearCart = () => {
     setCart(null);
     setCartCount(0);

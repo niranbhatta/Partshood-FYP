@@ -7,8 +7,9 @@ import './Orders.css';
 
 const Orders = () => {
   const [ordersList, setOrdersList] = useState([]);
-  const { token } = useAuth();
+  const { token } = useAuth(); // grabbing the jwt token to prove who we are to the backend
 
+  // firing a request to the backend as soon as the page boots up to grab our order history
   useEffect(() => {
     const fetchOrders = async () => {
       try {
@@ -23,15 +24,17 @@ const Orders = () => {
     if (token) fetchOrders();
   }, [token]);
 
+  // flattening the array of items into a clean comma-separated string for the table
   const formatItems = (items) => {
     return items.map(item => `${item.name} x${item.quantity}`).join(', ');
   };
 
+  // mapping backend string statuses to our frontend css classes for color coding
   const getStatusClass = (status) => {
     if (status === 'Delivered') return 'delivered';
     if (status === 'Processing') return 'processing';
     if (status === 'Pre-Order') return 'preorder';
-    return 'pending';
+    return 'pending'; // fallback state
   };
 
   return (
@@ -57,11 +60,13 @@ const Orders = () => {
             <tbody>
               {ordersList.map(order => (
                 <tr key={order._id}>
+                  {/* slicing the huge mongo ID down to just the last 8 characters so it looks like a real order number */}
                   <td className="order-id-cell">{order._id.substring(order._id.length - 8).toUpperCase()}</td>
                   <td className="text-gray">{new Date(order.createdAt).toLocaleDateString()}</td>
                   <td>{formatItems(order.items)}</td>
                   <td className="font-semibold">Rs. {order.totalAmount}</td>
                   <td>
+                    {/* injecting the dynamic pill color based on what the backend said */}
                     <span className={`order-status-pill ${getStatusClass(order.orderStatus)}`}>
                       {order.orderStatus}
                     </span>

@@ -5,18 +5,22 @@ import Navbar from '../components/Navbar';
 import './Auth.css';
 
 const Register = () => {
+  // tracking roughly a million input fields so we can send a clean object to the backend
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('customer');
+  const [role, setRole] = useState('customer'); // defaults to customer so people don't accidentally make seller accounts
   const [company, setCompany] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  
   const navigate = useNavigate();
   const { user, register } = useAuth();
 
+  // bounce them to the homepage if they are currently logged in
   if (user) return <Navigate to="/" replace />;
 
   const handleRegister = async (e) => {
@@ -24,12 +28,17 @@ const Register = () => {
     setErrorMessage('');
     setSuccessMessage('');
     try {
+      // lobbing all their form data straight into the auth context
       await register(name, email, password, role, company, phone, address);
+      
+      // letting sellers know they can't just immediately start listing items
       if (role === 'seller') {
         setSuccessMessage('Seller account created! Pending admin approval. Redirecting...');
       } else {
         setSuccessMessage('Account created! Redirecting to login...');
       }
+      
+      // giving them 2 seconds to read the success message before aggressively shoving them to the login screen
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
       setErrorMessage(err.message || 'Registration failed');
@@ -52,7 +61,7 @@ const Register = () => {
             <input
               type="text"
               className="form-input"
-              placeholder="John Doe"
+              placeholder="Niran"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -80,6 +89,7 @@ const Register = () => {
               required
             />
           </div>
+          
           <div className="form-group">
             <label className="form-label">I want to register as a:</label>
             <select
@@ -93,43 +103,43 @@ const Register = () => {
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label">Phone Number</label>
+            <input
+              type="tel"
+              className="form-input"
+              placeholder="+977-98XXXXXXXX"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Address</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Kathmandu, Nepal"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              required
+            />
+          </div>
+
+          {/* only sliding down the company name field if they selected the seller dropdown */}
           {role === 'seller' && (
-            <>
-              <div className="form-group">
-                <label className="form-label">Company / Brand Name</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Yamaha, KTM, Bajaj"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  required
-                />
-                <small className="form-hint">You will only be able to sell parts for this brand</small>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <input
-                  type="tel"
-                  className="form-input"
-                  placeholder="+977-98XXXXXXXX"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Business Address</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Kathmandu, Nepal"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  required
-                />
-              </div>
-            </>
+            <div className="form-group">
+              <label className="form-label">Company / Brand Name</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Yamaha, KTM, Bajaj"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                required
+              />
+              <small className="form-hint">You will only be able to sell parts for this brand</small>
+            </div>
           )}
 
           <button type="submit" className="pill-btn auth-submit-btn">Create Account</button>

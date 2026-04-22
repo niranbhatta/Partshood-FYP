@@ -4,9 +4,11 @@
 }
 
 .shop-header-minimal {
-  background: #1e293b;
+  background: linear-gradient(rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.7)), url('/superbike_banner.png');
+  background-size: cover;
+  background-position: center;
   color: white;
-  padding: 40px 0;
+  padding: 80px 0;
   text-align: center;
   margin-bottom: 40px;
 }
@@ -235,4 +237,40 @@
   background: white;
   border-radius: 20px;
   border: 2px dashed #e2e8f0;
+}
+
+.out-of-stock-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.out-of-stock-label {
+  flex: 1;
+  padding: 12px;
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.preorder-link-btn {
+  flex: 1;
+  padding: 12px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.preorder-link-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
 }

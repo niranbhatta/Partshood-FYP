@@ -2,23 +2,28 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+// handles making a brand new user account in the db
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, role, company, phone, address } = req.body;
 
     const existingUser = await User.findOne({ email });
 
+    // checking if someone already signed up with this email so we don't crash
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
+    // scramble the password before throwing it in the database
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // default to customer so people can't hack the api to make themselves admins
     let assignedRole = "customer";
     if (role === "seller") {
       assignedRole = "seller";
     }
 
+    // sellers have to wait for an admin to approve them, regulars get in instantly
     const status = assignedRole === "seller" ? "pending" : "approved";
 
     const user = await User.create({
@@ -27,9 +32,10 @@ const registerUser = async (req, res) => {
       password: hashedPassword,
       role: assignedRole,
       status,
+      // only store company name if they are actually a seller
       company: assignedRole === "seller" ? (company || "") : "",
-      phone: assignedRole === "seller" ? (phone || "") : "",
-      address: assignedRole === "seller" ? (address || "") : ""
+      phone: phone || "",
+      address: address || ""
     });
 
     res.status(201).json({
@@ -50,22 +56,26 @@ const registerUser = async (req, res) => {
   }
 };
 
+// verifying email/password and giving back a jwt string
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
 
+    // bounce them if email doesn't match
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // use bcrypt to compare plain english password to the scrambled text we saved
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // stop sellers from logging in if an admin hasn't clicked approve yet
     if (user.status === "pending") {
       return res.status(403).json({ message: "Your seller account is pending admin approval." });
     }
@@ -74,6 +84,7 @@ const loginUser = async (req, res) => {
       return res.status(403).json({ message: "Your seller account application was rejected." });
     }
 
+    // sign the token using our secret key, lasting 7 days
     const token = jwt.sign(
       { id: user._id, role: user.role, company: user.company },
       process.env.JWT_SECRET,
@@ -97,8 +108,10 @@ const loginUser = async (req, res) => {
   }
 };
 
+// helper route the frontend uses constantly to convert a token back into a user object
 const getMe = async (req, res) => {
   try {
+    // finding the user by the id we buried in the jwt, dropping the password field
     const user = await User.findById(req.user.id).select("-password");
 
     if (!user) {

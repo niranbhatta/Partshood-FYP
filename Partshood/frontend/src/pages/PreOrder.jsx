@@ -9,26 +9,32 @@ import './PreOrder.css';
 const PreOrder = () => {
   const { token, user } = useAuth();
   const navigate = useNavigate();
+
+  // keeping track of all the dropdowns and text boxes
   const [formData, setFormData] = useState({
     bikeModel: '',
     brand: '',
     partName: ''
   });
+  
+  // separate state variables for when people pick "Other" from the dropdowns
   const [customBrand, setCustomBrand] = useState('');
   const [customModel, setCustomModel] = useState('');
+  
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState(false); // flag to show the big checkmark screen
   const [error, setError] = useState('');
 
+  // hardcoding these so the UI looks consistent
   const bikeModels = ['R15', 'FZ S', 'Duke 200', 'Duke 390', 'Pulsar 220', 'Avenger 220', 'Classic 350', 'Apache'];
-  const brands = ['Yamaha', 'KTM', 'Bajaj', 'Royal Enfield', 'TVS'];
+  const brands = ['Yamaha', 'KTM', 'Bajaj', 'Royal Enfield', 'Triumph'];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    // Use custom values if "Other" is selected
+    // dynamically swapping out the dropdown value with the custom text input if they selected "Other"
     const finalData = {
       bikeModel: formData.bikeModel === 'Other' ? customModel : formData.bikeModel,
       brand: formData.brand === 'Other' ? customBrand : formData.brand,
@@ -42,10 +48,13 @@ const PreOrder = () => {
     }
 
     try {
+      // throwing the request up to the server, authenticating it with their token
       await axios.post('http://localhost:5000/api/preorder', finalData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setSuccess(true);
+      setSuccess(true); // turning on the success screen
+      
+      // waiting exactly 2 seconds before violently shoving them over to the orders page
       setTimeout(() => navigate('/orders'), 2000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit pre-order');
@@ -54,6 +63,7 @@ const PreOrder = () => {
     }
   };
 
+  // completely wiping out the normal UI layout and replacing it with this success template if the flag is true
   if (success) {
     return (
       <div className="preorder-page">
@@ -94,6 +104,7 @@ const PreOrder = () => {
                   {bikeModels.map(m => <option key={m} value={m}>{m}</option>)}
                   <option value="Other">Other (type below)</option>
                 </select>
+                {/* magically expanding the form to show a text box if they picked 'Other' */}
                 {formData.bikeModel === 'Other' && (
                   <input 
                     type="text"
@@ -117,6 +128,7 @@ const PreOrder = () => {
                   {brands.map(b => <option key={b} value={b}>{b}</option>)}
                   <option value="Other">Other (type below)</option>
                 </select>
+                {/* magically expanding the form to show a text box if they picked 'Other' */}
                 {formData.brand === 'Other' && (
                   <input 
                     type="text"

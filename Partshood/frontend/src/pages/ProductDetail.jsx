@@ -7,13 +7,14 @@ import { useAuth } from '../context/AuthContext';
 import './ProductDetail.css';
 
 const ProductDetail = () => {
-  const { id } = useParams();
+  const { id } = useParams(); // tearing the product ID out of the URL string so we know what to fetch
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const { addToCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // fires as soon as the page loads, pulling down the specific item data
   useEffect(() => {
     const fetchProduct = async () => {
       try {
@@ -33,14 +34,18 @@ const ProductDetail = () => {
 
   const isOutOfStock = product.stock === 0;
 
+  // funneling both "Buy Now" and "Add to Cart" through the same logic
   const handleAction = (action) => {
+    // silently intercepting guests and forcing them to log in before they can interact with the cart
     if (!user) {
       navigate('/login');
       return;
     }
+    
     if (action === 'cart') {
       addToCart(product._id);
     } else if (action === 'buy') {
+      // 'buy now' adds it to the cart and instantly slides them over to the checkout phase
       addToCart(product._id);
       navigate('/cart');
     }
@@ -79,6 +84,7 @@ const ProductDetail = () => {
               </div>
               <div className="meta-item">
                 <span className="meta-label">Stock</span>
+                {/* dynamically throwing on css classes based on whether it is in stock or not */}
                 <span className={`meta-value ${isOutOfStock ? 'out-of-stock' : 'in-stock'}`}>
                   {isOutOfStock ? 'Out of Stock' : `${product.stock} available`}
                 </span>
@@ -88,8 +94,12 @@ const ProductDetail = () => {
             <div className="detail-price">Rs. {product.price}</div>
 
             <div className="detail-actions">
+              {/* toggling the UI completely if the item is gone, routing them to the preorder flow instead */}
               {isOutOfStock ? (
-                <button className="pill-btn preorder-btn" onClick={() => handleAction('cart')}>Pre-Order Now</button>
+                <div className="detail-out-of-stock-row">
+                  <span className="detail-oos-badge">Out of Stock</span>
+                  <button className="pill-btn preorder-btn" onClick={() => navigate('/pre-order')}>Pre Order</button>
+                </div>
               ) : (
                 <>
                   <button className="pill-btn outline" onClick={() => handleAction('cart')}>

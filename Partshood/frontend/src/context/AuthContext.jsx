@@ -1,14 +1,17 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 
+// making a global bubble where we can store whoever is currently logged in
 const AuthContext = createContext(null);
 
 const API_BASE = 'http://localhost:5000/api/auth';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  // checking if they still have a token sitting in their browser from a previous visit
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
 
+  // the moment the app loads, we take their stored token and ask the backend who they are
   useEffect(() => {
     const rehydrate = async () => {
       if (!token) {
@@ -23,8 +26,9 @@ export const AuthProvider = ({ children }) => {
 
         if (response.ok) {
           const data = await response.json();
-          setUser(data);
+          setUser(data); // populating the global state with their name, role, etc
         } else {
+          // the backend rejected the token (probably expired), so we silently log them out
           localStorage.removeItem('token');
           setToken(null);
           setUser(null);
@@ -41,6 +45,7 @@ export const AuthProvider = ({ children }) => {
     rehydrate();
   }, [token]);
 
+  // handling the form submission from the login page
   const login = async (email, password) => {
     const response = await fetch(`${API_BASE}/login`, {
       method: 'POST',
@@ -54,12 +59,14 @@ export const AuthProvider = ({ children }) => {
       throw new Error(data.message);
     }
 
+    // saving the new jwt token so they don't have to log in again tomorrow
     localStorage.setItem('token', data.token);
     setToken(data.token);
     setUser(data.user);
     return data.user;
   };
 
+  // basically the same as login but hitting the register endpoint instead
   const register = async (name, email, password, role, company, phone, address) => {
     const response = await fetch(`${API_BASE}/register`, {
       method: 'POST',
@@ -76,6 +83,7 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
+  // literally just deleting the token from their browser so the API stops recognizing them
   const logout = () => {
     localStorage.removeItem('token');
     setToken(null);
@@ -89,6 +97,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+// a nice little shorthand hook so we don't have to import the context manually everywhere
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

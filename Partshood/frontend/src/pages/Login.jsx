@@ -9,26 +9,32 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const navigate = useNavigate();
-  const { user, login } = useAuth();
+  const { user, login } = useAuth(); // grabbing the login logic from our global auth bubble
 
+  // if they stumbled onto this page but are already logged in, instantly kick them back out
   if (user) {
     if (user.role === 'admin') {
-      return <Navigate to="/dashboard" replace />;
+      return <Navigate to="/admin-dashboard" replace />;
     }
     return <Navigate to="/" replace />;
   }
 
+  // triggered when they hit the "Sign In" button
   const handleLogin = async (e) => {
-    e.preventDefault();
+    e.preventDefault(); // stop the browser from aggressively reloading the page
     setErrorMessage('');
     try {
+      // throwing the email and password at the context which throws it at the backend
       const loggedInUser = await login(email, password);
-      if (loggedInUser.role === 'admin') {
-        navigate('/dashboard');
+      
+      // smart redirection based on who just logged in
+      if (loggedInUser.role === 'admin' || loggedInUser.role === 'seller') {
+        navigate(loggedInUser.role === 'admin' ? '/admin-dashboard' : '/seller-dashboard');
       } else {
-        navigate('/');
+        navigate('/'); // normal buyers land on the homepage
       }
     } catch (err) {
+      // catching API rejections like "invalid password" and putting them on screen
       setErrorMessage(err.message || 'Login failed');
     }
   };
@@ -40,6 +46,7 @@ const Login = () => {
         <h2 className="auth-title">Welcome back</h2>
         <p className="auth-subtitle">Sign in to your Partshood account</p>
 
+        {/* cleanly showing the red error box only when things go wrong */}
         {errorMessage && <div className="auth-error">{errorMessage}</div>}
 
         <form onSubmit={handleLogin} className="auth-form">

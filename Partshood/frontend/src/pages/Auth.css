@@ -9,7 +9,7 @@
 }
 
 .auth-content {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.67);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -18,7 +18,8 @@
   width: 100%;
   max-width: 440px;
   box-shadow: var(--shadow-premium);
-  margin: 60px auto;
+  margin: auto;
+  transform: translateY(-10vh);
 }
 
 .auth-title {

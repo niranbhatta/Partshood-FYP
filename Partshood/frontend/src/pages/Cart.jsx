@@ -8,18 +8,21 @@ import { useAuth } from '../context/AuthContext';
 import './Cart.css';
 
 const Cart = () => {
+  // ripping the global cart logic out of the context so we can actually build a UI around it
   const { cart, updateQuantity, removeFromCart, clearCart } = useCart();
   const cartItems = cart?.items || [];
   const { token } = useAuth();
   const navigate = useNavigate();
   const [shippingAddress, setShippingAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
+  const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery'); // defaulting to COD because it's easiest
 
+  // pushing numbers up or down and immediately pinging the context to sync with the db
   const increaseQuantity = (productId, currentQuantity) => {
     updateQuantity(productId, currentQuantity + 1);
   };
 
   const decreaseQuantity = (productId, currentQuantity) => {
+    // stopping them from accidentally deleting items by dropping to zero
     if (currentQuantity > 1) {
       updateQuantity(productId, currentQuantity - 1);
     }
@@ -29,20 +32,43 @@ const Cart = () => {
     removeFromCart(productId);
   };
 
+  // instantly crunching the math to calculate the bottom line
   const cartTotal = cartItems.reduce((total, item) => total + item.product.price * item.quantity, 0);
 
+  // the big green button logic
   const handlePlaceOrder = async () => {
     if (!shippingAddress) return alert('Please enter shipping address');
     try {
       const { data } = await axios.post(
         'http://localhost:5000/api/orders',
         { shippingAddress, paymentMethod },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } } // validating their session
       );
-      clearCart();
-      if (data.paymentUrl) {
+      clearCart(); // visually empty the cart so they don't buy it twice
+      
+      // if they picked eSewa, the backend sends us a massive config object with an encrypted signature
+      if (data.esewaConfig) {
+        // we literally have to build an invisible HTML form out of thin air and artificially click 'submit' on it
+        const form = document.createElement('form');
+        form.setAttribute('method', 'POST');
+        form.setAttribute('action', data.esewaConfig.url);
+
+        for (const key in data.esewaConfig) {
+          if (key !== 'url') {
+            const hiddenField = document.createElement('input');
+            hiddenField.setAttribute('type', 'hidden');
+            hiddenField.setAttribute('name', key);
+            hiddenField.setAttribute('value', data.esewaConfig[key]);
+            form.appendChild(hiddenField);
+          }
+        }
+        document.body.appendChild(form); // appending it to the DOM
+        form.submit(); // blasting them over to the eSewa portal
+      } else if (data.paymentUrl) {
+         // handling khalti
          window.location.href = data.paymentUrl;
       } else {
+         // standard cash on delivery, just toss them to the receipts page
          navigate('/orders');
       }
     } catch (err) {
@@ -113,7 +139,7 @@ const Cart = () => {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                 >
                   <option value="Cash on Delivery">Cash on Delivery</option>
-                  <option value="eSewa">eSewa Mock Payment</option>
+                  <option value="eSewa">eSewa Secure Checkout</option>
                   <option value="Khalti">Khalti Mock Payment</option>
                 </select>
               </div>

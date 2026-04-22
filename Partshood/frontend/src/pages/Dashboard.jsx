@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Bell, Search, TrendingUp, TrendingDown, RefreshCcw, ArrowUpRight, Package, Box } from 'lucide-react';
@@ -6,15 +6,33 @@ import DashboardSidebar from '../components/DashboardSidebar';
 import { useAuth } from '../context/AuthContext';
 import './Dashboard.css';
 
-const DashboardHome = ({ orders, products, totalRevenue }) => {
+const DashboardHome = ({ orders, products, totalRevenue, user }) => {
+  // filtering out anything that's already reached the customer so we only see active work
   const activeOrders = orders.filter(o => o.orderStatus !== 'Delivered').length;
+
+  // calculating revenue differently depending on if you are the admin or just a seller 
+  const getSellerSubtotal = (order) => {
+    if (user?.role !== 'seller') return order.totalAmount; // admins get to see the whole pie
+    const sellerProductIds = products.map(p => p._id.toString());
+    return order.items.reduce((sum, item) => {
+      const productId = item.product?._id || item.product;
+      if (sellerProductIds.includes(productId.toString())) {
+        return sum + (item.price * item.quantity);
+      }
+      return sum;
+    }, 0);
+  };
+
+  const displayRevenue = user?.role === 'seller' 
+    ? orders.reduce((sum, o) => sum + getSellerSubtotal(o), 0)
+    : totalRevenue;
 
   return (
     <>
       <div className="stats-grid">
         <div className="stat-card dark">
           <p className="stat-title">Total Revenue</p>
-          <h3 className="stat-value">Rs. {totalRevenue.toLocaleString()}</h3>
+          <h3 className="stat-value">Rs. {displayRevenue.toLocaleString()}</h3>
           <p className="stat-trend positive"><TrendingUp size={14} /> Live data</p>
         </div>
         <div className="stat-card">
@@ -54,7 +72,7 @@ const DashboardHome = ({ orders, products, totalRevenue }) => {
                 <td className="text-gray">{order._id.substring(order._id.length - 8).toUpperCase()}</td>
                 <td>{order.user?.name || 'N/A'}</td>
                 <td>{order.items.map(i => `${i.name} x${i.quantity}`).join(', ')}</td>
-                <td className="font-semibold">Rs. {order.totalAmount}</td>
+                <td className="font-semibold">Rs. {getSellerSubtotal(order)}</td>
                 <td>
                   <span className={`status-pill ${order.orderStatus.toLowerCase()}`}>
                     {order.orderStatus}
@@ -69,11 +87,23 @@ const DashboardHome = ({ orders, products, totalRevenue }) => {
   );
 };
 
-const OrdersManager = ({ orders, token, onRefresh }) => {
+const OrdersManager = ({ orders, products, token, onRefresh, user }) => {
   const [updating, setUpdating] = useState(null);
 
+  const getSellerSubtotal = (order) => {
+    if (user?.role !== 'seller') return order.totalAmount;
+    const sellerProductIds = products.map(p => p._id.toString());
+    return order.items.reduce((sum, item) => {
+      const productId = item.product?._id || item.product;
+      if (sellerProductIds.includes(productId.toString())) {
+        return sum + (item.price * item.quantity);
+      }
+      return sum;
+    }, 0);
+  };
+
   const updateStatus = async (orderId, newStatus) => {
-    setUpdating(orderId);
+    setUpdating(orderId); // locking the dropdown while the network request is flying
     try {
       await axios.put(
         `http://localhost:5000/api/orders/admin/${orderId}`,
@@ -85,6 +115,18 @@ const OrdersManager = ({ orders, token, onRefresh }) => {
       console.error("Failed to update order status");
     }
     setUpdating(null);
+  };
+
+  const deleteOrder = async (orderId) => {
+    if (!window.confirm("Are you sure you want to delete this order?")) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/orders/admin/${orderId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      onRefresh();
+    } catch (err) {
+      console.error("Failed to delete order");
+    }
   };
 
   return (
@@ -109,16 +151,16 @@ const OrdersManager = ({ orders, token, onRefresh }) => {
           {orders.map(order => (
             <tr key={order._id}>
               <td className="text-gray">{order._id.substring(order._id.length - 8).toUpperCase()}</td>
-              <td>{order.user?.name || 'N/A'}</td>
+              <td>{order.user?.name || 'Deleted User'}</td>
               <td>{order.items.map(i => `${i.name} x${i.quantity}`).join(', ')}</td>
-              <td className="font-semibold">Rs. {order.totalAmount}</td>
+              <td className="font-semibold">Rs. {getSellerSubtotal(order)}</td>
               <td>{order.paymentMethod}</td>
               <td>
                 <span className={`status-pill ${order.orderStatus.toLowerCase()}`}>
                   {order.orderStatus}
                 </span>
               </td>
-              <td>
+              <td style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <select
                   className="status-select"
                   value={order.orderStatus}
@@ -131,6 +173,7 @@ const OrdersManager = ({ orders, token, onRefresh }) => {
                   <option value="Delivered">Delivered</option>
                   <option value="Cancelled">Cancelled</option>
                 </select>
+                <button className="delete-btn" onClick={() => deleteOrder(order._id)}>Delete</button>
               </td>
             </tr>
           ))}
@@ -144,26 +187,98 @@ const OrdersManager = ({ orders, token, onRefresh }) => {
 const ProductsManager = ({ products, token, onRefresh, user }) => {
   const [showForm, setShowForm] = useState(false);
   const [addError, setAddError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  
+  // instantly injecting the seller's brand into the form so they don't have to type it (and can't spoof it)
   const sellerBrand = user?.role === 'seller' ? (user?.company || '') : '';
   const [form, setForm] = useState({
     name: '', price: '', category: 'Body Parts', brand: sellerBrand, bikeModel: '', stock: 0, description: '', image: 'https://placehold.co/150'
   });
+  const [editingId, setEditingId] = useState(null);
+  const [customCategory, setCustomCategory] = useState('');
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+
+  const uploadFileHandler = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    setUploading(true);
+    try {
+      const config = {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      };
+      const { data } = await axios.post('http://localhost:5000/api/upload', formData, config);
+      setForm((prev) => ({ ...prev, image: `http://localhost:5000${data.image}` }));
+      setUploading(false);
+    } catch (error) {
+      console.error(error);
+      setUploading(false);
+      setAddError('Image upload failed');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setAddError('');
     try {
-      await axios.post(
-        'http://localhost:5000/api/products',
-        { ...form, price: Number(form.price), stock: Number(form.stock), brand: user?.role === 'seller' ? sellerBrand : form.brand },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const finalCategory = isCustomCategory ? customCategory : form.category;
+      const productData = { 
+        ...form, 
+        category: finalCategory,
+        price: Number(form.price), 
+        stock: Number(form.stock), 
+        brand: user?.role === 'seller' ? sellerBrand : form.brand 
+      };
+
+      if (editingId) {
+        await axios.put(
+          `http://localhost:5000/api/products/${editingId}`,
+          productData,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else {
+        await axios.post(
+          'http://localhost:5000/api/products',
+          productData,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
       setShowForm(false);
+      setEditingId(null);
       setForm({ name: '', price: '', category: 'Body Parts', brand: sellerBrand, bikeModel: '', stock: 0, description: '', image: 'https://placehold.co/150' });
+      setCustomCategory('');
+      setIsCustomCategory(false);
       onRefresh();
     } catch (err) {
-      const msg = err.response?.data?.message || "Failed to add product";
+      const msg = err.response?.data?.message || "Failed to save product";
       setAddError(msg);
+    }
+  };
+
+  const handleEdit = (p) => {
+    setEditingId(p._id);
+    setForm({
+      name: p.name,
+      price: p.price,
+      category: p.category,
+      brand: p.brand,
+      bikeModel: p.bikeModel,
+      stock: p.stock,
+      description: p.description,
+      image: p.image
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Check if category is custom (not in default list)
+    const defaults = ['Body Parts', 'Brakes', 'Electricals', 'Exhaust', 'Drivetrain'];
+    if (!defaults.includes(p.category)) {
+      setIsCustomCategory(true);
+      setCustomCategory(p.category);
+    } else {
+      setIsCustomCategory(false);
     }
   };
 
@@ -187,8 +302,15 @@ const ProductsManager = ({ products, token, onRefresh, user }) => {
       <div className="chart-header">
         <h3>Product Catalog {sellerBrand && <span style={{fontSize: 13, color: '#6b7280', fontWeight: 400}}>— {sellerBrand} only</span>}</h3>
         <div className="flex gap-2">
-          <button className="pill-btn small" onClick={() => { setShowForm(!showForm); setAddError(''); }}>
-            {showForm ? 'Cancel' : '+ Add Product'}
+          <button className="pill-btn small" onClick={() => { 
+            if (editingId) {
+              setEditingId(null);
+              setForm({ name: '', price: '', category: 'Body Parts', brand: sellerBrand, bikeModel: '', stock: 0, description: '', image: 'https://placehold.co/150' });
+            }
+            setShowForm(!showForm); 
+            setAddError(''); 
+          }}>
+            {showForm ? (editingId ? 'Cancel Edit' : 'Cancel') : '+ Add Product'}
           </button>
           <button className="icon-btn-small" onClick={onRefresh}><RefreshCcw size={14} /></button>
         </div>
@@ -201,13 +323,34 @@ const ProductsManager = ({ products, token, onRefresh, user }) => {
           <div className="form-grid">
             <input placeholder="Product Name" value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} required />
             <input placeholder="Price" type="number" value={form.price} onChange={(e) => setForm({...form, price: e.target.value})} required />
-            <select value={form.category} onChange={(e) => setForm({...form, category: e.target.value})}>
-              <option>Body Parts</option>
-              <option>Brakes</option>
-              <option>Electricals</option>
-              <option>Exhaust</option>
-              <option>Drivetrain</option>
-            </select>
+            <div className="form-group" style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+              <select 
+                value={isCustomCategory ? 'Other' : form.category} 
+                onChange={(e) => {
+                  if (e.target.value === 'Other') {
+                    setIsCustomCategory(true);
+                  } else {
+                    setIsCustomCategory(false);
+                    setForm({...form, category: e.target.value});
+                  }
+                }}
+              >
+                <option>Body Parts</option>
+                <option>Brakes</option>
+                <option>Electricals</option>
+                <option>Exhaust</option>
+                <option>Drivetrain</option>
+                <option value="Other">Other (type below)</option>
+              </select>
+              {isCustomCategory && (
+                <input 
+                  placeholder="Enter manual category name" 
+                  value={customCategory} 
+                  onChange={(e) => setCustomCategory(e.target.value)} 
+                  required 
+                />
+              )}
+            </div>
             {user?.role === 'seller' ? (
               <input placeholder="Brand" value={sellerBrand} readOnly style={{background: '#f3f4f6', cursor: 'not-allowed'}} title="Locked to your company brand" />
             ) : (
@@ -215,10 +358,15 @@ const ProductsManager = ({ products, token, onRefresh, user }) => {
             )}
             <input placeholder="Bike Model (e.g. R15)" value={form.bikeModel} onChange={(e) => setForm({...form, bikeModel: e.target.value})} required />
             <input placeholder="Stock Quantity" type="number" value={form.stock} onChange={(e) => setForm({...form, stock: e.target.value})} />
-            <input placeholder="Image URL" value={form.image} onChange={(e) => setForm({...form, image: e.target.value})} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <input placeholder="Image URL (or select file)" value={form.image} onChange={(e) => setForm({...form, image: e.target.value})} />
+              <input type="file" accept="image/*" onChange={uploadFileHandler} style={{ fontSize: '13px', padding: '8px', border: '1px solid #e1e7ef', borderRadius: '8px' }} />
+              {uploading && <span style={{ fontSize: '12px', color: '#6366f1' }}>Uploading image...</span>}
+            </div>
             <textarea placeholder="Description" value={form.description} onChange={(e) => setForm({...form, description: e.target.value})} />
           </div>
-          <button type="submit" className="pill-btn">Save Product</button>
+          <button type="submit" className="pill-btn">{editingId ? 'Update Product' : 'Save Product'}</button>
+          {user?.role === 'seller' && !editingId && <p style={{fontSize: '12px', color: '#6b7280', marginTop: '10px'}}>* Your product will be visible in the shop after Admin approval.</p>}
         </form>
       )}
 
@@ -230,7 +378,7 @@ const ProductsManager = ({ products, token, onRefresh, user }) => {
             <th>Model</th>
             <th>Price</th>
             <th>Stock</th>
-            <th>Category</th>
+            <th>Status</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -249,10 +397,17 @@ const ProductsManager = ({ products, token, onRefresh, user }) => {
                   {product.stock === 0 ? 'Out of Stock' : product.stock}
                 </span>
               </td>
-              <td>{product.category}</td>
+              <td>
+                <span className={`fx-status-pill po-${product.status || 'approved'}`}>
+                  {(product.status || 'approved').toUpperCase()}
+                </span>
+              </td>
               <td>
                 {user?.role === 'admin' || (user?.role === 'seller' && product.brand?.toLowerCase() === sellerBrand.toLowerCase()) ? (
-                  <button className="delete-btn" onClick={() => deleteProduct(product._id)}>Delete</button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="edit-btn" onClick={() => handleEdit(product)}>Edit</button>
+                    <button className="delete-btn" onClick={() => deleteProduct(product._id)}>Delete</button>
+                  </div>
                 ) : null}
               </td>
             </tr>
@@ -273,6 +428,7 @@ const CustomersManager = ({ token }) => {
   const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', phone: '', address: '' });
   const [createError, setCreateError] = useState('');
 
+  // pulling the list of normal buyers from the backend
   const fetchCustomers = async () => {
     try {
       const { data } = await axios.get('http://localhost:5000/api/users/customers', {
@@ -339,7 +495,7 @@ const CustomersManager = ({ token }) => {
             <div className="create-seller-grid">
               <div className="form-group">
                 <label className="form-label">Full Name</label>
-                <input className="form-input" placeholder="John Doe" value={createForm.name} onChange={e => setCreateForm({...createForm, name: e.target.value})} required />
+                <input className="form-input" placeholder="Niran" value={createForm.name} onChange={e => setCreateForm({...createForm, name: e.target.value})} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Email Address</label>
@@ -394,7 +550,7 @@ const CustomersManager = ({ token }) => {
   );
 };
 
-const BRANDS = ['Yamaha', 'KTM', 'Bajaj', 'Royal Enfield', 'TVS', 'Honda', 'Hero', 'Suzuki'];
+const BRANDS = ['Yamaha', 'KTM', 'Bajaj', 'Royal Enfield', 'Triumph', 'Honda', 'Hero', 'Suzuki'];
 
 const SellersManager = ({ token }) => {
   const [sellers, setSellers] = useState([]);
@@ -402,6 +558,8 @@ const SellersManager = ({ token }) => {
   const [editForm, setEditForm] = useState({ name: '', email: '', company: '', phone: '', address: '', status: '' });
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', company: BRANDS[0], phone: '', address: '' });
+  const [customBrand, setCustomBrand] = useState('');
+  const [isCustomBrand, setIsCustomBrand] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState(null);
 
@@ -424,10 +582,12 @@ const SellersManager = ({ token }) => {
     e.preventDefault();
     setCreateError('');
     setCreateSuccess(null);
+    // dynamically swapping out the dropdown value if they selected the "Other" brand
     try {
+      const finalCompany = isCustomBrand ? customBrand : createForm.company;
       const { data } = await axios.post('http://localhost:5000/api/users/sellers',
-        createForm,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { ...createForm, company: finalCompany },
+        { headers: { Authorization: `Bearer ${token}` } } // validating admin token
       );
       setCreateSuccess({
         name: data.seller.name,
@@ -542,12 +702,20 @@ const SellersManager = ({ token }) => {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Brand / Company</label>
-                  <select className="form-input" value={createForm.company} onChange={e => setCreateForm({...createForm, company: e.target.value})} required>
+                  <select className="form-input" value={isCustomBrand ? '__custom__' : createForm.company} onChange={e => {
+                    if (e.target.value === '__custom__') {
+                      setIsCustomBrand(true);
+                      setCustomBrand('');
+                    } else {
+                      setIsCustomBrand(false);
+                      setCreateForm({...createForm, company: e.target.value});
+                    }
+                  }} required>
                     {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
                     <option value="__custom__">Other (type below)</option>
                   </select>
-                  {createForm.company === '__custom__' && (
-                    <input className="form-input" style={{marginTop: 8}} placeholder="Enter custom brand name" onChange={e => setCreateForm({...createForm, company: e.target.value})} />
+                  {isCustomBrand && (
+                    <input className="form-input" style={{marginTop: 8}} placeholder="Enter custom brand name" value={customBrand} onChange={e => setCustomBrand(e.target.value)} required />
                   )}
                   <small className="form-hint">Seller will ONLY be able to list products of this brand</small>
                 </div>
@@ -720,14 +888,50 @@ const FxStackedBarChart = ({ data }) => {
   );
 };
 
-const AnalyticsPanel = ({ orders, products }) => {
-  const totalRev = orders.reduce((s, o) => s + o.totalAmount, 0);
-  const avgOrder = orders.length ? Math.round(totalRev / orders.length) : 0;
-  const deliveredCount = orders.filter(o => o.orderStatus === 'Delivered').length;
-  const pendingCount = orders.filter(o => o.orderStatus === 'Pending').length;
-  const processingCount = orders.filter(o => o.orderStatus === 'Processing').length;
+const AnalyticsPanel = ({ orders: allOrders, products: allProducts, user, sellers }) => {
+  const [selectedSellerId, setSelectedSellerId] = useState('all');
+
+  // Create a product-to-seller map for accurate filtering
+  const productSellerMap = useMemo(() => {
+    const map = {};
+    allProducts.forEach(p => {
+      map[p._id] = (p.sellerId?._id || p.sellerId);
+    });
+    return map;
+  }, [allProducts]);
+
+  // Filter data based on selection (only for admin)
+  const filteredOrders = useMemo(() => {
+    if (user?.role !== 'admin' || selectedSellerId === 'all') return allOrders;
+    return allOrders.filter(o => 
+      o.items.some(i => productSellerMap[i.product] === selectedSellerId)
+    );
+  }, [allOrders, selectedSellerId, productSellerMap, user]);
+
+  const filteredProducts = useMemo(() => {
+    if (user?.role !== 'admin' || selectedSellerId === 'all') return allProducts;
+    return allProducts.filter(p => (p.sellerId?._id || p.sellerId) === selectedSellerId);
+  }, [allProducts, selectedSellerId, user]);
+
+  const totalRev = filteredOrders.reduce((s, o) => {
+    // If Admin and specific seller selected, or if user is a seller, only count their items
+    const sellerIdToFilter = user?.role === 'admin' ? selectedSellerId : user?.id;
+    
+    if (sellerIdToFilter && sellerIdToFilter !== 'all') {
+      const sellerItems = o.items.filter(i => {
+        const prodId = i.product?._id || i.product;
+        return productSellerMap[prodId] === sellerIdToFilter;
+      });
+      const sellerAmount = sellerItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+      return s + sellerAmount;
+    }
+    return s + o.totalAmount;
+  }, 0);
+  const avgOrder = filteredOrders.length ? Math.round(totalRev / filteredOrders.length) : 0;
+  const deliveredCount = filteredOrders.filter(o => o.orderStatus === 'Delivered').length;
+  const pendingCount = filteredOrders.filter(o => o.orderStatus === 'Pending').length;
+  const processingCount = filteredOrders.filter(o => o.orderStatus === 'Processing').length;
   
-  // Dummy data for the stacked bar
   const chartData = [
     { label: 'Jan', v1: 15, v2: 25 },
     { label: 'Feb', v1: 20, v2: 40 },
@@ -739,13 +943,40 @@ const AnalyticsPanel = ({ orders, products }) => {
     { label: 'Aug', v1: 10, v2: 50 },
   ];
 
+  const getTimeOfDay = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'morning';
+    if (hour < 18) return 'afternoon';
+    return 'evening';
+  };
+
   return (
     <div className="fx-page">
       <div className="fx-header">
         <div className="fx-greeting">
-          <h2>Good morning, Niran</h2>
-          <p>Stay on top of your tasks, monitor progress, and track status.</p>
+          <h2>Good {getTimeOfDay()}, {user?.name}</h2>
+          <p>
+            {user?.role === 'admin' 
+              ? (selectedSellerId === 'all' ? 'Marketplace Overview (Aggregate)' : `Viewing performance for ${sellers.find(s => s._id === selectedSellerId)?.name || 'Seller'}`)
+              : 'Detailed performance insights for your products.'}
+          </p>
         </div>
+
+        {user?.role === 'admin' && (
+          <div className="fx-seller-selector">
+            <span style={{fontSize: 13, marginRight: 8, color: '#6b7280'}}>View Analytics For:</span>
+            <select 
+              value={selectedSellerId} 
+              onChange={(e) => setSelectedSellerId(e.target.value)}
+              className="fx-select-minimal"
+            >
+              <option value="all">Entire Marketplace</option>
+              {sellers.map(s => (
+                <option key={s._id} value={s._id}>{s.name} ({s.company || 'Private'})</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="fx-grid">
@@ -817,47 +1048,10 @@ const AnalyticsPanel = ({ orders, products }) => {
             </div>
             <div className="fx-limit-texts">
               <div className="fx-limit-left"><b>{deliveredCount}</b> fulfilled out of</div>
-              <div className="fx-limit-right">{orders.length + 50}</div>
+              <div className="fx-limit-right">{filteredOrders.length + 50}</div>
             </div>
           </div>
 
-          {/* Card: My Cards */}
-          <div className="fx-card">
-            <div className="fx-cards-header">
-              <div className="fx-card-title">Top Products</div>
-              <button className="fx-add-btn">+ Add new</button>
-            </div>
-            
-            <div className="fx-cc-list">
-              <div className="fx-cc fx-cc-dark">
-                <div className="fx-cc-top">
-                  <div className="fx-cc-chip">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg> active
-                  </div>
-                  <div className="fx-cc-brands">
-                    <div className="fx-cc-circle c1"></div><div className="fx-cc-circle c2"></div>
-                  </div>
-                </div>
-                <div className="fx-cc-num">Engine Oil</div>
-                <div className="fx-cc-bot">
-                  <div><span className="fx-cc-lbl">STOCK</span><br/>45</div>
-                  <div><span className="fx-cc-lbl">SOLD</span><br/>120</div>
-                </div>
-              </div>
-
-              <div className="fx-cc fx-cc-orange">
-                <div className="fx-cc-top">
-                  <div className="fx-cc-chip fx-cc-chip-light">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg> active
-                  </div>
-                </div>
-                <div className="fx-cc-num" style={{marginTop: 10}}>Brake Pads</div>
-                <div className="fx-cc-bot">
-                  <div><span className="fx-cc-lbl">STOCK</span><br/>28</div>
-                </div>
-              </div>
-            </div>
-          </div>
 
         </div>
 
@@ -885,7 +1079,7 @@ const AnalyticsPanel = ({ orders, products }) => {
                   <span className="fx-sc-title">Total Orders</span>
                   <div className="fx-sc-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></div>
                 </div>
-                <div className="fx-sc-val">{orders.length}</div>
+                <div className="fx-sc-val">{filteredOrders.length}</div>
                 <div className="fx-sc-trend fx-sc-trend-red">
                   ↓ 5% <span className="fx-sc-trend-sub">This month</span>
                 </div>
@@ -907,7 +1101,7 @@ const AnalyticsPanel = ({ orders, products }) => {
                   <span className="fx-sc-title">Total Products</span>
                   <div className="fx-sc-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg></div>
                 </div>
-                <div className="fx-sc-val">{products.length}</div>
+                <div className="fx-sc-val">{filteredProducts.length}</div>
                 <div className="fx-sc-trend fx-sc-trend-green">
                   ↑ 4% <span className="fx-sc-trend-sub">This month</span>
                 </div>
@@ -968,7 +1162,7 @@ const AnalyticsPanel = ({ orders, products }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.slice(0, 5).map((o, i) => (
+                  {filteredOrders.slice(0, 5).map((o, i) => (
                     <tr key={i}>
                       <td><input type="checkbox" className="fx-cbx" defaultChecked={i===3} /></td>
                       <td style={{color: '#6b7280'}}>{o._id.slice(-8).toUpperCase()}</td>
@@ -987,7 +1181,7 @@ const AnalyticsPanel = ({ orders, products }) => {
                       <td style={{color: '#9ca3af', letterSpacing: 2}}>...</td>
                     </tr>
                   ))}
-                  {orders.length === 0 && (
+                  {filteredOrders.length === 0 && (
                     <tr>
                       <td colSpan="7" style={{textAlign: 'center', color: '#9ca3af', padding: '30px'}}>
                         No recent activities.
@@ -1009,6 +1203,7 @@ const AnalyticsPanel = ({ orders, products }) => {
 const PreOrdersManager = ({ token, user }) => {
   const [preOrders, setPreOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('pending');
 
   const fetchPreOrders = async () => {
     try {
@@ -1035,15 +1230,69 @@ const PreOrdersManager = ({ token, user }) => {
     }
   };
 
+  const deletePreOrder = async (id) => {
+    if (!window.confirm('Remove this restocked pre-order from the list?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/preorder/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchPreOrders();
+    } catch (err) {
+      console.error("Failed to delete pre-order");
+    }
+  };
+
   useEffect(() => { fetchPreOrders(); }, []);
 
   if (loading) return <div className="fx-loader">Loading Pre-Orders...</div>;
+
+  // Split pre-orders into tabs
+  const pendingOrders = preOrders.filter(po => ['pending', 'accepted', 'not-found'].includes(po.status));
+  const restockedOrders = preOrders.filter(po => po.status === 'restocked');
+  const displayOrders = activeTab === 'pending' ? pendingOrders : restockedOrders;
 
   return (
     <div className="fx-card fx-table-card">
       <div className="fx-table-header">
         <div className="fx-card-title">Customer Pre-Order Requests</div>
       </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid #f3f4f6' }}>
+        <button
+          onClick={() => setActiveTab('pending')}
+          style={{
+            padding: '12px 24px',
+            fontSize: '13px',
+            fontWeight: activeTab === 'pending' ? 700 : 500,
+            color: activeTab === 'pending' ? '#1a1a1a' : '#9ca3af',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'pending' ? '2px solid #1a1a1a' : '2px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          Pending / Active ({pendingOrders.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('restocked')}
+          style={{
+            padding: '12px 24px',
+            fontSize: '13px',
+            fontWeight: activeTab === 'restocked' ? 700 : 500,
+            color: activeTab === 'restocked' ? '#059669' : '#9ca3af',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'restocked' ? '2px solid #059669' : '2px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          Restocked ({restockedOrders.length})
+        </button>
+      </div>
+
       <div className="fx-table-wrapper">
         <table className="fx-table">
           <thead>
@@ -1058,7 +1307,7 @@ const PreOrdersManager = ({ token, user }) => {
             </tr>
           </thead>
           <tbody>
-            {preOrders.map(po => (
+            {displayOrders.map(po => (
               <tr key={po._id}>
                 <td>{new Date(po.createdAt).toLocaleDateString()}</td>
                 <td>
@@ -1079,15 +1328,44 @@ const PreOrdersManager = ({ token, user }) => {
                   </span>
                 </td>
                 <td>
-                  <div className="po-actions">
-                    <button className="po-btn accept" onClick={() => updateStatus(po._id, 'accepted')}>Check</button>
-                    <button className="po-btn reject" onClick={() => updateStatus(po._id, 'not-found')}>N/A</button>
-                  </div>
+                  {activeTab === 'pending' ? (
+                    <div className="po-actions">
+                      {po.status === 'pending' && (
+                        <>
+                          <button className="po-btn accept" onClick={() => updateStatus(po._id, 'accepted')}>Accept</button>
+                          <button className="po-btn reject" onClick={() => updateStatus(po._id, 'not-found')}>N/A</button>
+                        </>
+                      )}
+                      {po.status === 'accepted' && (
+                        <button 
+                          className="po-btn" 
+                          style={{ background: '#ecfdf5', color: '#059669', borderColor: '#a7f3d0' }}
+                          onClick={() => updateStatus(po._id, 'restocked')}
+                        >
+                          ✓ Restocked
+                        </button>
+                      )}
+                      {po.status === 'not-found' && (
+                        <button className="po-btn accept" onClick={() => updateStatus(po._id, 'pending')}>Re-open</button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="po-actions">
+                      <button 
+                        className="po-btn reject" 
+                        onClick={() => deletePreOrder(po._id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
-            {preOrders.length === 0 && (
-              <tr><td colSpan="7" style={{textAlign: 'center', padding: '40px', color: '#9ca3af'}}>No pre-order requests found.</td></tr>
+            {displayOrders.length === 0 && (
+              <tr><td colSpan="7" style={{textAlign: 'center', padding: '40px', color: '#9ca3af'}}>
+                {activeTab === 'pending' ? 'No pending pre-order requests.' : 'No restocked items yet.'}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -1097,9 +1375,331 @@ const PreOrdersManager = ({ token, user }) => {
 };
 
 
+
+const RecommendationsManager = ({ token }) => {
+  const [recommendations, setRecommendations] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({ name: '', description: '', image: '' });
+  const [editingId, setEditingId] = useState(null);
+
+  const fetchRecommendations = async () => {
+    try {
+      const { data } = await axios.get('http://localhost:5000/api/recommendations');
+      setRecommendations(data);
+    } catch (err) {
+      console.error("Failed to fetch recommendations");
+    }
+  };
+
+  useEffect(() => { fetchRecommendations(); }, []);
+
+  const uploadFileHandler = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    setUploading(true);
+    try {
+      const config = { headers: { 'Content-Type': 'multipart/form-data' } };
+      const { data } = await axios.post('http://localhost:5000/api/upload', formData, config);
+      setForm((prev) => ({ ...prev, image: `http://localhost:5000${data.image}` }));
+      setUploading(false);
+    } catch (error) {
+      console.error(error);
+      setUploading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await axios.put(`http://localhost:5000/api/recommendations/${editingId}`, form, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else {
+        await axios.post('http://localhost:5000/api/recommendations', form, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+      setShowForm(false);
+      setEditingId(null);
+      setForm({ name: '', description: '', image: '' });
+      fetchRecommendations();
+    } catch (err) {
+      console.error("Failed to save recommendation");
+    }
+  };
+
+  const handleEdit = (rec) => {
+    setForm({ name: rec.name, description: rec.description, image: rec.image });
+    setEditingId(rec._id);
+    setShowForm(true);
+  };
+
+  const deleteRecommendation = async (id) => {
+    try {
+      await axios.delete(`http://localhost:5000/api/recommendations/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchRecommendations();
+    } catch (err) {
+      console.error("Failed to delete recommendation");
+    }
+  };
+
+  return (
+    <div className="fx-card fx-table-card">
+      <div className="fx-table-header">
+        <div className="fx-card-title">{editingId ? 'Edit Recommendation' : 'Recommended Parts Management'}</div>
+        <button className="fx-btn fx-btn-dark" onClick={() => {
+          if (showForm && editingId) {
+            setEditingId(null);
+            setForm({ name: '', description: '', image: '' });
+          }
+          setShowForm(!showForm);
+        }}>
+          {showForm ? 'Cancel' : '+ Add Recommendation'}
+        </button>
+      </div>
+
+      {showForm && (
+        <form className="fx-form" onSubmit={handleSubmit} style={{ padding: '24px', borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <input 
+              className="fx-form-input" 
+              placeholder="Part Name" 
+              value={form.name} 
+              onChange={e => setForm({...form, name: e.target.value})} 
+              required 
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <input 
+                className="fx-form-input" 
+                placeholder="Image URL or Upload below" 
+                value={form.image} 
+                onChange={e => setForm({...form, image: e.target.value})} 
+              />
+              <input type="file" onChange={uploadFileHandler} style={{ fontSize: '13px' }} />
+              {uploading && <span style={{ fontSize: '12px', color: '#6366f1' }}>Uploading...</span>}
+            </div>
+          </div>
+          <textarea 
+            className="fx-form-input" 
+            placeholder="Short Description" 
+            value={form.description} 
+            onChange={e => setForm({...form, description: e.target.value})} 
+            required 
+            style={{ width: '100%', minHeight: '80px', marginBottom: '16px' }}
+          />
+          <button type="submit" className="fx-btn fx-btn-dark">Save Recommendation</button>
+        </form>
+      )}
+
+      <div className="fx-table-wrapper">
+        <table className="fx-table">
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th>Part Name</th>
+              <th>Description</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recommendations.map(rec => (
+              <tr key={rec._id}>
+                <td><img src={rec.image} alt="" style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: '8px' }} /></td>
+                <td className="font-semibold">{rec.name}</td>
+                <td style={{ 
+                  color: '#6b7280', 
+                  fontSize: '13px', 
+                  maxWidth: '500px', 
+                  minWidth: '350px',
+                  whiteSpace: 'normal',
+                  lineHeight: '1.6'
+                }}>
+                  {rec.description}
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      className="edit-btn" 
+                      onClick={() => handleEdit(rec)}
+                      style={{ padding: '4px 10px', fontSize: '11px' }}
+                    >
+                      Edit
+                    </button>
+                    <button className="fx-status-pill cancelled" onClick={() => deleteRecommendation(rec._id)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+
+const PendingProductsManager = ({ token, onRefresh }) => {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('pending'); // 'pending' or 'rejected'
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const { data } = await axios.get(`http://localhost:5000/api/products?status=${activeTab}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProducts(data);
+    } catch (err) {
+      console.error("Failed to fetch products");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateStatus = async (id, status) => {
+    try {
+      await axios.put(`http://localhost:5000/api/products/${id}/status`, { status }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchProducts();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Failed to update status");
+    }
+  };
+
+  const deleteProduct = async (id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this product?")) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/products/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchProducts();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Failed to delete product");
+    }
+  };
+
+  useEffect(() => { fetchProducts(); }, [activeTab]);
+
+  return (
+    <div className="fx-card fx-table-card">
+      <div className="fx-table-header" style={{ borderBottom: '1px solid #f3f4f6', marginBottom: 0 }}>
+        <div className="fx-tabs" style={{ display: 'flex', gap: '24px' }}>
+          <button 
+            className={`fx-tab ${activeTab === 'pending' ? 'active' : ''}`}
+            onClick={() => setActiveTab('pending')}
+            style={{ 
+              padding: '16px 0', 
+              fontSize: '14px', 
+              fontWeight: 600, 
+              color: activeTab === 'pending' ? '#6366f1' : '#6b7280',
+              borderBottom: activeTab === 'pending' ? '2px solid #6366f1' : '2px solid transparent',
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              outline: 'none'
+            }}
+          >
+            Awaiting Approval
+          </button>
+          <button 
+            className={`fx-tab ${activeTab === 'rejected' ? 'active' : ''}`}
+            onClick={() => setActiveTab('rejected')}
+            style={{ 
+              padding: '16px 0', 
+              fontSize: '14px', 
+              fontWeight: 600, 
+              color: activeTab === 'rejected' ? '#6366f1' : '#6b7280',
+              borderBottom: activeTab === 'rejected' ? '2px solid #6366f1' : '2px solid transparent',
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              outline: 'none'
+            }}
+          >
+            Rejected History
+          </button>
+        </div>
+      </div>
+
+      <div className="fx-table-wrapper">
+        {loading ? (
+          <div className="fx-loader" style={{ padding: '40px' }}>Syncing with inventory...</div>
+        ) : (
+          <table className="fx-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Brand / Model</th>
+                <th>Seller</th>
+                <th>Price</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map(p => (
+                <tr key={p._id}>
+                  <td>
+                    <div className="fx-activity-col">
+                      <img src={p.image} alt="" style={{ width: '44px', height: '44px', borderRadius: '8px', objectFit: 'cover' }} />
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#111827' }}>{p.name}</div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>{p.category}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{ fontWeight: 500 }}>{p.brand}</div>
+                    <div style={{ fontSize: '12px', color: '#9ca3af' }}>{p.bikeModel}</div>
+                  </td>
+                  <td>{p.sellerId?.name || 'Admin Added'}</td>
+                  <td className="font-semibold">Rs. {p.price.toLocaleString()}</td>
+                  <td>
+                    <div className="po-actions">
+                      {activeTab === 'pending' ? (
+                        <>
+                          <button className="fx-status-pill shipped" onClick={() => updateStatus(p._id, 'approved')}>Approve</button>
+                          <button className="fx-status-pill cancelled" onClick={() => updateStatus(p._id, 'rejected')}>Reject</button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="fx-status-pill shipped" onClick={() => updateStatus(p._id, 'approved')}>Re-Approve</button>
+                          <button className="fx-status-pill cancelled" onClick={() => deleteProduct(p._id)}>Delete Permanently</button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {products.length === 0 && (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '60px', color: '#9ca3af' }}>
+                    {activeTab === 'pending' ? 'Zero pending requests. Good job!' : 'No rejected items in history.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
 const Dashboard = () => {
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
+  const [sellers, setSellers] = useState([]);
   const { token, user } = useAuth();
   const location = useLocation();
 
@@ -1124,10 +1724,27 @@ const Dashboard = () => {
       if (user?.role === 'admin') {
         setProducts(data);
       } else {
-        setProducts(data.filter(p => p.sellerId?._id === user?.id || p.sellerId === user?.id));
+        const sellerBrand = user?.company?.toLowerCase() || '';
+        setProducts(data.filter(p => {
+          const isOwner = p.sellerId?._id === user?.id || p.sellerId === user?.id;
+          const isBrandMatch = p.brand?.toLowerCase() === sellerBrand;
+          return isOwner || isBrandMatch;
+        }));
       }
     } catch (err) {
       console.error("Failed to fetch products");
+    }
+  };
+
+  const fetchSellers = async () => {
+    if (user?.role !== 'admin') return;
+    try {
+      const { data } = await axios.get('http://localhost:5000/api/users/sellers', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSellers(data);
+    } catch (err) {
+      console.error("Failed to fetch sellers");
     }
   };
 
@@ -1135,6 +1752,7 @@ const Dashboard = () => {
     if (token && user) {
       fetchOrders();
       fetchProducts();
+      if (user?.role === 'admin') fetchSellers();
     }
   }, [token, user]);
 
@@ -1144,7 +1762,7 @@ const Dashboard = () => {
 
   const renderContent = () => {
     if (currentTab.includes('/dashboard/orders') || currentTab.includes('/seller-dashboard/orders') || currentTab.includes('/admin-dashboard/orders')) {
-      return <OrdersManager orders={orders} token={token} onRefresh={fetchOrders} />;
+      return <OrdersManager orders={orders} products={products} token={token} onRefresh={fetchOrders} user={user} />;
     }
     if (currentTab.includes('/dashboard/products') || currentTab.includes('/seller-dashboard/products') || currentTab.includes('/admin-dashboard/products')) {
       return <ProductsManager products={products} token={token} onRefresh={() => { fetchProducts(); }} user={user} />;
@@ -1156,12 +1774,18 @@ const Dashboard = () => {
       return <CustomersManager token={token} />;
     }
     if (currentTab.includes('/analytics')) {
-      return <AnalyticsPanel orders={orders} products={products} />;
+      return <AnalyticsPanel orders={orders} products={products} user={user} sellers={sellers} />;
     }
     if (currentTab.includes('preorders')) {
       return <PreOrdersManager token={token} user={user} />;
     }
-    return <DashboardHome orders={orders} products={products} totalRevenue={totalRevenue} />;
+    if (currentTab.includes('recommendations')) {
+      return <RecommendationsManager token={token} />;
+    }
+    if (currentTab.includes('approval')) {
+      return <PendingProductsManager token={token} onRefresh={fetchProducts} />;
+    }
+    return <DashboardHome orders={orders} products={products} totalRevenue={totalRevenue} user={user} />;
   };
 
   return (
@@ -1176,6 +1800,7 @@ const Dashboard = () => {
              currentTab.includes('/sellers') ? 'Sellers Management' :
              currentTab.includes('/customers') ? 'Customer Management' :
              currentTab.includes('/analytics') ? 'Analytics' : 
+             currentTab.includes('/recommendations') ? 'Recommendations Management' :
              currentTab.includes('/preorders') ? 'Pre-Order Requests' : 'Dashboard'}
           </h2>
           <div className="header-actions">

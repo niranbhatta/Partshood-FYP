@@ -1208,7 +1208,58 @@
   padding: 16px 24px;
   font-size: 12px;
   border-bottom: 1px solid #f3f4f6;
-  white-space: nowrap;
+  white-space: normal;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+/* ── Status Pills ── */
+.fx-status-pill {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border: none;
+  display: inline-block;
+  cursor: pointer;
+  outline: none;
+}
+
+.po-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.po-approved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.po-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* ── Analytics Selection ── */
+.fx-seller-selector {
+  display: flex;
+  align-items: center;
+  background: white;
+  padding: 8px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  border: 1px solid #e5e7eb;
+}
+
+.fx-select-minimal {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1a1a;
+  outline: none;
+  cursor: pointer;
 }
 .fx-table tr:last-child td { border-bottom: none; }
 .fx-cbx { width: 14px; height: 14px; accent-color: #1a1a1a; cursor: pointer; }
@@ -1235,6 +1286,37 @@
 .fx-processing { background: #ff6536; }
 .fx-cancelled { background: #1a1a1a; }
 
+/* ── Product Manager Buttons ── */
+.edit-btn, .delete-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.edit-btn {
+  background-color: #6366f10a;
+  color: #6366f1;
+  border-color: #6366f122;
+}
+
+.edit-btn:hover {
+  background-color: #6366f115;
+}
+
+.delete-btn {
+  background-color: #ef44440a;
+  color: #ef4444;
+  border-color: #ef444422;
+}
+
+.delete-btn:hover {
+  background-color: #ef444415;
+}
+
 /* Pre-Order Specific Styles */
 .fx-status-pill.po-pending {
   background-color: #fef9c3;
@@ -1247,6 +1329,10 @@
 .fx-status-pill.po-not-found {
   background-color: #fee2e2;
   color: #b91c1c;
+}
+.fx-status-pill.po-restocked {
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
 .po-actions {
